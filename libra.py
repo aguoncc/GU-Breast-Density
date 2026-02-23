@@ -120,7 +120,7 @@ class LIBRA(object): # The main class
                 Path, File = os.path.split(self.Case)
                 File = File[:-4]
 
-                call(["python3", os.path.join(self.code_path, "just_original_image_preprocessing.py"), "-i",
+                call(["python", os.path.join(self.code_path, "just_original_image_preprocessing.py"), "-i",
                       self.Case, "-o", self.output_path, "-if", self.image_format])
 
         T_End = time()
@@ -170,7 +170,7 @@ class LIBRA(object): # The main class
                 Path, File = os.path.split(self.Case)
                 File = File[:-4]
 
-                call(["python3", os.path.join(self.code_path, "preprocessing.py"), "-i",
+                call(["python", os.path.join(self.code_path, "preprocessing.py"), "-i",
                       self.Case, "-o", self.output_path, "-if", self.image_format,
                       "-po", self.print_off, "-sfn", self.saving_folder_name_net_air,
                       "-ar", str(self.A_Range), "-fis", str(self.final_image_size),
@@ -254,7 +254,7 @@ class LIBRA(object): # The main class
                 _, File = os.path.split(self.Case)
                 self.File = File[:File.find(self.air_seg_prefix)]
 
-                call(["python3", os.path.join(self.code_path, "preprocessing_pec.py"),
+                call(["python", os.path.join(self.code_path, "preprocessing_pec.py"),
                       "-i", self.Case, "-if", self.image_format, "-cn", self.File,
                       "-po", self.print_off, "-sfn", self.saving_folder_name_net_pec,
                       "-ar", str(self.A_Range), "-fis", str(self.final_image_size),
@@ -330,7 +330,7 @@ class LIBRA(object): # The main class
                 _, File = os.path.split(self.Case)
                 self.File = File[:File.find(self.pec_seg_prefix)]
 
-                call(["python3", os.path.join(self.code_path, "postprocessing.py"),
+                call(["python", os.path.join(self.code_path, "postprocessing.py"),
                       "-i", self.Case, "-if", self.image_format, "-cn", self.File,
                       "-po", self.print_off, "-sfn", self.saving_folder_name_final_masked_normalized_images,
                       "-ar", str(self.A_Range), "-fis", str(self.final_image_size),
@@ -415,7 +415,7 @@ class LIBRA(object): # The main class
                 _, File = os.path.split(self.Case)
                 self.File = File[:-4]
 
-                call(["python3", os.path.join(self.code_path, "density_map_feature_based.py"),
+                call(["python", os.path.join(self.code_path, "density_map_feature_based.py"),
                       "-i", self.Case, "-if", self.image_format, "-cn", self.File,
                       "-po", self.print_off, "-sfn", self.saving_folder_name_breast_density,
                       "-ar", str(self.A_Range), "-fis", str(self.final_image_size),

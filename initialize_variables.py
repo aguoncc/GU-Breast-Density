@@ -3,21 +3,22 @@ import argparse, os
 
 def set_argparse(argv):
     ap = argparse.ArgumentParser()
+    # path to preprocessed png images are (air_net_data\image)
     ap.add_argument("-i", "--input_dataset",
-                    default='home/ohm/Desktop/data/train/',
+                    default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\output\model1\air_net_data",
                     help="Path to input dataset")
-
+    # saving results
     ap.add_argument("-o", "--output_path",
-                    default='home/ohm/Desktop/data/train/',
+                    default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\output",
                     help="Path for saving results file")
-
 
     # models info
     ap.add_argument("-wsm", "--weight_selection_method", default="bv",
                     help="How to select the best weights")
 
+    # path where the density networks are stored
     ap.add_argument("-m", "--general_model_path",
-                    default="/home/ohm/Desktop/Net",
+                    default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\nets\density",
                     help="A general path to where the models are saved")
 
     ap.add_argument("-ma", "--model_path_air",

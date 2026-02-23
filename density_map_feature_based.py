@@ -13,6 +13,7 @@ if platform.system() == "Darwin":
     matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import cv2, os, argparse, pdb, logging, pickle, json
+import pydicom
 
 # From my packages
 from timeout import timeout
@@ -20,7 +21,7 @@ from segmentation_tools import FSLIC
 from pyradiomics_features import extract_breast_radiomics_features
 from breast_needed_functions import bring_back_images_to_orginal_orientation, Z_scoring
 from breast_needed_functions import bring_back_images_to_orginal_size, Normalize_Image, fix_ratio
-
+from skimage.segmentation import slic
 
 
 
@@ -29,7 +30,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-o", "--output_path", required=False, default='./',
                 help="path for saving results file")
 
-ap.add_argument("-i", "--input", required=False, default='./file.dcm',
+ap.add_argument("-i", "--input", required=False, default='./file.dicom',
                 help="path for input files")
 
 ap.add_argument("-if", "--image_format", required=False, default='.png',
@@ -53,7 +54,8 @@ ap.add_argument("-cn", "--case_name", default="Case_ID",
 ap.add_argument("-lt", "--libra_training", default="0",
                 help="Zero means to masking and one means training")
 
-ap.add_argument("-pttm", "--Path_to_trained_model", default="/cbica/home/hajimago/Net/density/model.pkl",
+ap.add_argument("-pttm", "--Path_to_trained_model", 
+                default=r"C:/Users/Data Science/Downloads/Attempt2/Deep-LIBRA2/nets/density/network_model.pkl",
                 help="This is path to trained model for density prediction")
 
 ap.add_argument("-rii", "--remove_intermediate_images",
@@ -63,7 +65,6 @@ ap.add_argument("-to", "--timeout_sec", type=int, default=1800,
                 help="timeout for each batch")
 
 args = vars(ap.parse_args())
-
 
 
 
@@ -116,12 +117,14 @@ class Segmentor(object): # The main class
 
         #################################################################### Loading Image
         #################################################################### & files
+        # adding this to read the dicom files properly
         self.image = cv2.imread(self.Case_path, 0)
         self.mask = self.image>self.image.min()
 
 
         org_image_path = os.path.join(self.output_path, self.case_name,
-            "air_breast_mask", self.case_name+"_16bits_Orginal"+self.image_format)
+            "air_breast_mask", self.case_name+"_16bits_Original"+self.image_format)
+        print(f"Finding original images at: {org_image_path}")
         org_image = cv2.imread(org_image_path, -1)
         org_image = fix_ratio(org_image,
                             self.final_image_size, self.final_image_size)
@@ -131,8 +134,8 @@ class Segmentor(object): # The main class
         air_mask = cv2.imread(air_mask_path, -1)
 
 
-        org_image = Normalize_Image(org_image, 2**13-1,
-                        bits_conversion="uint16",
+        org_image = Normalize_Image(org_image, 2**13-1, # changed 2**13-1
+                        bits_conversion="uint16",# changed uint16
                         flag_min_edition=True,
                         flag_max_edition=True,
                         Min=org_image.min(),
@@ -184,168 +187,182 @@ class Segmentor(object): # The main class
             for N, Index in enumerate(Indexes):
                 self.FEATUREs.columns.values[Index] = self.FEATUREs.columns[Index]+"."+str(N+1)
 
+        # inbreast spacing in mm
+        Pixel_Spacing_vals = [0.07, 0.07]  
+        Pixel_Spacing_Y = Pixel_Spacing_vals[1]
+        Pixel_Spacing_X = Pixel_Spacing_vals[0]
+        pixel_to_cm_conversion = Pixel_Spacing_X * Pixel_Spacing_Y * 0.1 * 0.1
 
-        if self.libra_training != "1":
-            ##### do density mapping
-            Pixel_Spacing = Header_csv["ImagerPixelSpacing"] # remember this format "['0.094090909', '0.094090909']"
-            Coma_loc = Pixel_Spacing[0].find(',')
-            Pixel_Spacing_X = float(Pixel_Spacing[0][2:Coma_loc-1])
-            Pixel_Spacing_Y = float(Pixel_Spacing[0][Coma_loc+3:-2])
-            pixel_to_cm_conversion = Pixel_Spacing_X * Pixel_Spacing_Y * 0.1 * 0.1
+        # if self.libra_training != "1":
+        #     ##### do density mapping
+        #     Pixel_Spacing = Header_csv["ImagerPixelSpacing"] # remember this format "['0.094090909', '0.094090909']"
+        #     Coma_loc = Pixel_Spacing[0].find(',')
+        #     Pixel_Spacing_X = float(Pixel_Spacing[0][2:Coma_loc-1])
+        #     Pixel_Spacing_Y = float(Pixel_Spacing[0][Coma_loc+3:-2])
 
 
-            if self.multi_svm:
-                for SVM_INDEX in range(3):
-                    SVM_INDEX += 1
-                    Base, File = os.path.split(self.Path_to_trained_model)
-                    with open(os.path.join(Base, str(SVM_INDEX)+File), 'rb') as pickle_file:
-                        loaded_model = pickle.load(pickle_file)
-                    Base, File = os.path.split(self.Path_to_final_feature_list)
-                    with open(os.path.join(Base, str(SVM_INDEX)+File), 'r') as json_file:
-                        feature_list = json.load(json_file)
-                    Base, File = os.path.split(self.Path_to_max_min)
-                    max_min = pd.read_csv(os.path.join(Base, str(SVM_INDEX)+File), sep=',', index_col=0)
-                    max_min = max_min.loc[feature_list]
-
-                    self.normalized_features_svm = (self.FEATUREs[feature_list]-max_min["Min"])/(max_min["Max"]-max_min["Min"])
-                    temp_segment_Classes = loaded_model.predict(self.normalized_features_svm)
-
-                    if SVM_INDEX==1:
-                        segment_Classes = temp_segment_Classes.copy()
-                    else:
-                        segment_Classes += temp_segment_Classes
-                segment_Classes = segment_Classes/3.0
-                segment_Classes = np.int16(np.round(segment_Classes))
-
-            else:
-                with open(self.Path_to_trained_model, 'rb') as pickle_file:
+        if self.multi_svm:
+            for SVM_INDEX in range(3):
+                SVM_INDEX += 1
+                Base, File = os.path.split(self.Path_to_trained_model)
+                with open(os.path.join(Base, str(SVM_INDEX)+File), 'rb') as pickle_file:
                     loaded_model = pickle.load(pickle_file)
-                with open(self.Path_to_final_feature_list, 'r') as json_file:
+                Base, File = os.path.split(self.Path_to_final_feature_list)
+                with open(os.path.join(Base, str(SVM_INDEX)+File), 'r') as json_file:
                     feature_list = json.load(json_file)
-                max_min = pd.read_csv(self.Path_to_max_min, sep=',', index_col=0)
+                Base, File = os.path.split(self.Path_to_max_min)
+                max_min = pd.read_csv(os.path.join(Base, str(SVM_INDEX)+File), sep=',', index_col=0)
                 max_min = max_min.loc[feature_list]
 
                 self.normalized_features_svm = (self.FEATUREs[feature_list]-max_min["Min"])/(max_min["Max"]-max_min["Min"])
-                segment_Classes = loaded_model.predict(self.normalized_features_svm)
+                self.normalized_features_svm = self.normalized_features_svm.clip(0,1) # added thisS
 
+                temp_segment_Classes = loaded_model.predict(self.normalized_features_svm)
 
-            self.FEATUREs["Segment_Class"] = segment_Classes
-
-            ## This is where I might need to modify the density if it is really low
-            # np.argwhere(segment_Classes==1)
-
-            breast_area = self.FEATUREs["Breast_area"].iloc[0]
-
-            BD = np.sum(self.FEATUREs["Seg_area"][segment_Classes>0]/breast_area)
-
-            self.FEATUREs["Breast_Density_Percentage"] = BD
-
-            print(self.case_name, BD)
-
-            # save image desnity map
-            self.mask_density = np.zeros(self.image.shape)
-            Indexes = self.FEATUREs["Seg_index"]
-            for  Index in Indexes[self.FEATUREs["Segment_Class"]==1]:
-                self.mask_density[self.segments==Index] = 255
-
-
-            Path_to_csv_ori = os.path.join(self.output_path, self.case_name, "Headers.csv")
-            Path_to_csv_size = os.path.join(self.output_path, self.case_name, "air_breast_mask", "fixing_ratio.csv")
-
-
-            self.mask = self.mask*255
-            contours_mask, _ = cv2.findContours(self.mask.astype("uint8"),
-                                                cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            fig = plt.figure(frameon=False)
-            fig.set_size_inches(5, 5)
-            ax = plt.gca()
-            for contour in contours_mask:
-                if len(contour)>1:
-                    ax.imshow(self.image, 'gray')
-                    contour = np.concatenate((contour[:,:,0].T, contour[:,:,1].T), axis=0)
-                    ax.plot(contour[0], contour[1], linewidth=3, color='r')
-
-            contours_density, _ = cv2.findContours(self.mask_density.astype("uint8"),
-                                                cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-            for contour in contours_density:
-                contour = np.concatenate((contour[:,:,0].T, contour[:,:,1].T), axis=0)
-                ax.plot(contour[0], contour[1], linewidth=2, color='lime')
-            ax.set_axis_off()
-            plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)
-            ax.margins(0,0)
-            ax.xaxis.set_major_locator(plt.NullLocator())
-            ax.yaxis.set_major_locator(plt.NullLocator())
-            image_path = os.path.join(self.output_path, self.case_name, self.case_name+
-                                      "_dense_tissue_overlay_on_image"+self.image_format)
-            fig.canvas.draw()
-            plt.close()
-
-            image_returned = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            image_returned = image_returned.reshape(fig.canvas.get_width_height()[::-1] + (3,)).astype("uint8")
-            image_returned = cv2.cvtColor(image_returned, cv2.COLOR_BGR2RGB)
-            image_returned= bring_back_images_to_orginal_size(Path_to_csv_size, image_returned, "image")
-            image_returned = bring_back_images_to_orginal_orientation(Path_to_csv_ori, image_returned)
-
-            Path_to_org_image = os.path.join(self.output_path, self.case_name, "air_breast_mask",
-                                             self.case_name+"_Normalized"+self.image_format)
-            original_image = cv2.imread(Path_to_org_image, 0)
-            original_image = cv2.cvtColor(original_image,cv2.COLOR_GRAY2RGB)
-            original_image = bring_back_images_to_orginal_size(Path_to_csv_size, original_image, "image")
-            original_image = bring_back_images_to_orginal_orientation(Path_to_csv_ori, original_image)
-
-            original_image[image_returned==255] = self.A_Range
-            original_image[image_returned>0] = image_returned[image_returned>0]
-
-
-
-            Ch1 = original_image[...,0]
-            Ch2 = original_image[...,1]
-            Ch3 = original_image[...,2]
-            Ch3[image_returned[...,1]==255] = 0
-            Ch2[image_returned[...,2]==255] = 0
-            Ch1[np.logical_or(image_returned[...,2]==255, image_returned[...,1]==255)] = 0
-
-            Ch1[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
-            Ch2[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
-            Ch3[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
-
-            original_image[...,0] = Ch1
-            original_image[...,1] = Ch2
-            original_image[...,2] = Ch3
-            cv2.imwrite(image_path, original_image)
-
-            final_mask = os.path.join(Saving_Path_All, self.case_name+self.image_format)
-            cv2.imwrite(final_mask, original_image)
-
-
-            dense_mask_file_name = os.path.join(self.output_path, self.case_name, self.case_name+
-                                                "_dense_tissue_mask"+self.image_format)
-            self.mask_density = bring_back_images_to_orginal_size(Path_to_csv_size, self.mask_density)
-            self.mask_density = bring_back_images_to_orginal_orientation(Path_to_csv_ori, self.mask_density)
-            cv2.imwrite(dense_mask_file_name, self.mask_density)
-
-
-            final_mask = os.path.join(self.output_path, self.case_name, self.case_name+
-                                      "_final_breask_mask_image_size"+self.image_format)
-            self.mask = bring_back_images_to_orginal_size(Path_to_csv_size, self.mask)
-            self.mask = bring_back_images_to_orginal_orientation(Path_to_csv_ori, self.mask)
-            cv2.imwrite(final_mask, self.mask)
-
-
-            self.FEATUREs["Breast_area"] *= pixel_to_cm_conversion
-            self.FEATUREs["Seg_area"] *= pixel_to_cm_conversion
-
-
-            features_file_name = os.path.join(Saving_Path_All, self.case_name+"_Features.csv")
-            self.FEATUREs_new = self.FEATUREs[self.FEATUREs.columns[:102]].iloc[[0]]
-            self.FEATUREs_new[self.FEATUREs.columns[-1]] = self.FEATUREs[self.FEATUREs.columns[-1]].iloc[0]
-            self.FEATUREs_new["Dense_area"] = np.sum(self.FEATUREs["Seg_area"][self.FEATUREs["Segment_Class"]==1])
-            self.FEATUREs_new.index = [self.case_name]
-            self.FEATUREs_new.to_csv(features_file_name)
+                if SVM_INDEX==1:
+                    segment_Classes = temp_segment_Classes.copy()
+                else:
+                    segment_Classes += temp_segment_Classes
+            segment_Classes = segment_Classes/3.0
+            segment_Classes = np.int16(np.round(segment_Classes))
 
         else:
-            features_file_name = os.path.join(Saving_Path_All, self.case_name+"_Features.csv")
-            self.FEATUREs.to_csv(features_file_name)
+            with open(self.Path_to_trained_model, 'rb') as pickle_file:
+                loaded_model = pickle.load(pickle_file)
+            with open(self.Path_to_final_feature_list, 'r') as json_file:
+                feature_list = json.load(json_file)
+            max_min = pd.read_csv(self.Path_to_max_min, sep=',', index_col=0)
+            max_min = max_min.loc[feature_list]
+
+            self.normalized_features_svm = (self.FEATUREs[feature_list]-max_min["Min"])/(max_min["Max"]-max_min["Min"])
+            segment_Classes = loaded_model.predict(self.normalized_features_svm)
+
+        # DEBUG: check SVM predictions
+        print("Segment class counts:", Counter(segment_Classes))
+        print("Normalized features min/max:", self.normalized_features_svm.min().min(), self.normalized_features_svm.max().max())
+        print("Some feature values for first 5 segments:\n", self.normalized_features_svm.head())
+        self.FEATUREs["Segment_Class"] = segment_Classes
+
+        ## This is where I might need to modify the density if it is really low
+        # np.argwhere(segment_Classes==1)
+
+        breast_area = self.FEATUREs["Breast_area"].iloc[0]
+
+        BD = np.sum(self.FEATUREs["Seg_area"][segment_Classes>0]/breast_area)
+
+        self.FEATUREs["Breast_Density_Percentage"] = BD
+
+        print(self.case_name, BD)
+
+        # # save image desnity map
+        # self.mask_density = np.zeros(self.image.shape)
+        # Indexes = self.FEATUREs["Seg_index"]
+        # for  Index in Indexes[self.FEATUREs["Segment_Class"]==1]:
+        #     self.mask_density[self.segments==Index] = 255
+        
+        # editing:
+        self.mask_density = np.zeros(self.segments.shape, dtype=np.uint8)
+        Indexes = self.FEATUREs["Seg_index"]
+        for Index in Indexes[self.FEATUREs["Segment_Class"]==1]:
+            self.mask_density[self.segments==Index] = 255
+
+        Path_to_csv_ori = os.path.join(self.output_path, self.case_name, "Headers.csv")
+        Path_to_csv_size = os.path.join(self.output_path, self.case_name, "air_breast_mask", "fixing_ratio.csv")
+
+
+        self.mask = self.mask*255
+        contours_mask, _ = cv2.findContours(self.mask.astype("uint8"),
+                                            cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        fig = plt.figure(frameon=False)
+        fig.set_size_inches(5, 5)
+        ax = plt.gca()
+        for contour in contours_mask:
+            if len(contour)>1:
+                ax.imshow(self.image, 'gray')
+                contour = np.concatenate((contour[:,:,0].T, contour[:,:,1].T), axis=0)
+                ax.plot(contour[0], contour[1], linewidth=3, color='r')
+
+        contours_density, _ = cv2.findContours(self.mask_density.astype("uint8"),
+                                            cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours_density:
+            contour = np.concatenate((contour[:,:,0].T, contour[:,:,1].T), axis=0)
+            ax.plot(contour[0], contour[1], linewidth=2, color='lime')
+        ax.set_axis_off()
+        plt.subplots_adjust(top = 1, bottom = 0, right = 1, left = 0, hspace = 0, wspace = 0)
+        ax.margins(0,0)
+        ax.xaxis.set_major_locator(plt.NullLocator())
+        ax.yaxis.set_major_locator(plt.NullLocator())
+        image_path = os.path.join(self.output_path, self.case_name, self.case_name+
+                                    "_dense_tissue_overlay_on_image"+self.image_format)
+        fig.canvas.draw()
+        plt.close()
+
+        image_returned = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
+        image_returned = image_returned.reshape(fig.canvas.get_width_height()[::-1] + (3,)).astype("uint8")
+        image_returned = cv2.cvtColor(image_returned, cv2.COLOR_BGR2RGB)
+        image_returned= bring_back_images_to_orginal_size(Path_to_csv_size, image_returned, "image")
+        image_returned = bring_back_images_to_orginal_orientation(Path_to_csv_ori, image_returned)
+
+        Path_to_org_image = os.path.join(self.output_path, self.case_name, "air_breast_mask",
+                                            self.case_name+"_Normalized"+self.image_format)
+        original_image = cv2.imread(Path_to_org_image, 0)
+        original_image = cv2.cvtColor(original_image,cv2.COLOR_GRAY2RGB)
+        original_image = bring_back_images_to_orginal_size(Path_to_csv_size, original_image, "image")
+        original_image = bring_back_images_to_orginal_orientation(Path_to_csv_ori, original_image)
+
+        original_image[image_returned==255] = self.A_Range
+        original_image[image_returned>0] = image_returned[image_returned>0]
+
+
+
+        Ch1 = original_image[...,0]
+        Ch2 = original_image[...,1]
+        Ch3 = original_image[...,2]
+        Ch3[image_returned[...,1]==255] = 0
+        Ch2[image_returned[...,2]==255] = 0
+        Ch1[np.logical_or(image_returned[...,2]==255, image_returned[...,1]==255)] = 0
+
+        Ch1[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
+        Ch2[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
+        Ch3[np.logical_and(image_returned[...,0]==255, image_returned[...,2]==255, image_returned[...,1]==255)] = 255
+
+        original_image[...,0] = Ch1
+        original_image[...,1] = Ch2
+        original_image[...,2] = Ch3
+        cv2.imwrite(image_path, original_image)
+
+        final_mask = os.path.join(Saving_Path_All, self.case_name+self.image_format)
+        cv2.imwrite(final_mask, original_image)
+
+
+        dense_mask_file_name = os.path.join(self.output_path, self.case_name, self.case_name+
+                                            "_dense_tissue_mask"+self.image_format)
+        self.mask_density = bring_back_images_to_orginal_size(Path_to_csv_size, self.mask_density)
+        self.mask_density = bring_back_images_to_orginal_orientation(Path_to_csv_ori, self.mask_density)
+        cv2.imwrite(dense_mask_file_name, self.mask_density)
+
+
+        final_mask = os.path.join(self.output_path, self.case_name, self.case_name+
+                                    "_final_breask_mask_image_size"+self.image_format)
+        self.mask = bring_back_images_to_orginal_size(Path_to_csv_size, self.mask)
+        self.mask = bring_back_images_to_orginal_orientation(Path_to_csv_ori, self.mask)
+        cv2.imwrite(final_mask, self.mask)
+
+
+        self.FEATUREs["Breast_area"] *= pixel_to_cm_conversion
+        self.FEATUREs["Seg_area"] *= pixel_to_cm_conversion
+
+
+        features_file_name = os.path.join(Saving_Path_All, self.case_name+"_Features.csv")
+        self.FEATUREs_new = self.FEATUREs[self.FEATUREs.columns[:102]].iloc[[0]]
+        self.FEATUREs_new[self.FEATUREs.columns[-1]] = self.FEATUREs[self.FEATUREs.columns[-1]].iloc[0]
+        self.FEATUREs_new["Dense_area"] = np.sum(self.FEATUREs["Seg_area"][self.FEATUREs["Segment_Class"]==1])
+        self.FEATUREs_new.index = [self.case_name]
+        self.FEATUREs_new.to_csv(features_file_name)
+
+        # else:
+        #     features_file_name = os.path.join(Saving_Path_All, self.case_name+"_Features.csv")
+        #     self.FEATUREs.to_csv(features_file_name)
 
 
         features_file_name = os.path.join(self.output_path, self.case_name, self.case_name+"_Features.csv")
@@ -363,7 +380,7 @@ class Segmentor(object): # The main class
 
         T_End = time()
         if self.print_off==0: print("[INFO] Elapsed Time (for this file): "+'\033[1m'+ \
-              colored(str(round(T_End-T_Start, 2)), 'blue')+'\033[0m'+" seconds")
+                colored(str(round(T_End-T_Start, 2)), 'blue')+'\033[0m'+" seconds")
 
         logging.info("The process for this case is done.")
         if self.print_off==0: print(colored("[INFO]", 'green')+" The process for this case is done.")

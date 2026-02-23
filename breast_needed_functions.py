@@ -323,7 +323,7 @@ def object_oriented_preprocessing(obj, metal_threshold=30000,
             if (image_metal>metal_threshold).any():
                 image_metal[image_metal>metal_threshold]=MIN
 
-    if obj.ds.PresentationIntentType=='FOR PROCESSING':
+    if getattr(obj.ds, 'PresentationIntentType', 'FOR PROCESSING') == 'FOR PROCESSING':        
         if image.min() < 1:
             image = image + abs(image.min()) + 1
             image_metal = image_metal + abs(image_metal.min()) + 1
@@ -340,38 +340,42 @@ def object_oriented_preprocessing(obj, metal_threshold=30000,
             image_metal[image_metal>metal_threshold]=MIN
             image_metal = np.log(image_metal)
 
-    if obj.ds.PresentationIntentType=='FOR PROCESSING':
-        image = image**2
-        image_metal = image_metal**2
+    # if getattr(obj.ds, 'PresentationIntentType', 'FOR PROCESSING') == 'FOR PROCESSING':
+    #     image = image**2
+    #     image_metal = image_metal**2
 
 
-    if not(hasattr(obj.ds,'ImageLaterality')) and hasattr(obj.ds,'Laterality'):
-        obj.ds.ImageLaterality = obj.ds.Laterality
-    elif not(hasattr(obj.ds,'ImageLaterality')) and not(hasattr(obj.ds,'Laterality')):
-        left = image[:, :int(image.shape[1]/2)].sum()
-        right = image[:, int(image.shape[1]/2):].sum()
-        if right>left:
-            obj.ds.ImageLaterality = "R"
-        else:
-            obj.ds.ImageLaterality = "L"
+    # if not(hasattr(obj.ds,'ImageLaterality')) and hasattr(obj.ds,'Laterality'):
+    #     obj.ds.ImageLaterality = obj.ds.Laterality
+    # elif not(hasattr(obj.ds,'ImageLaterality')) and not(hasattr(obj.ds,'Laterality')):
+    #     left = image[:, :int(image.shape[1]/2)].sum()
+    #     right = image[:, int(image.shape[1]/2):].sum()
+    #     if right>left:
+    #         obj.ds.ImageLaterality = "R"
+    #     else:
+    #         obj.ds.ImageLaterality = "L"
 
-
-    obj.fliping_flag = 0
-    if hasattr(obj.ds,'FieldOfViewHorizontalFlip') and obj.ds.FieldOfViewHorizontalFlip =='YES':
-        if obj.ds.ImageLaterality == 'L':
-            image=np.fliplr(image)
-            image_metal=np.fliplr(image_metal)
-            obj.fliping_flag = 1
+    # in this case, image laterality is listed in the name:
+    if hasattr(obj.ds, 'ImageLaterality'):
+        laterality = obj.ds.ImageLaterality
     else:
-        if obj.ds.ImageLaterality == 'R':
-            image=np.fliplr(image)
-            image_metal=np.fliplr(image_metal)
+        laterality = 'R' if '_R_' in obj.Case else 'L'
+    
+    obj.flipping_flag = 0
+    if laterality == 'R':
+        image = np.fliplr(image)
+        image_metal = np.fliplr(image_metal)
+        obj.fliping_flag = 1
+
+    if getattr(obj.ds, 'FieldOfViewHorizontalFlip', 'NO') == 'YES':
+        if obj.ds.ImageLaterality == 'L':
+            image = np.fliplr(image)
+            image_metal = np.fliplr(image_metal)
             obj.fliping_flag = 1
 
     obj.image = image
 
-    return (obj, image_metal)
-
+    return obj, image_metal
 
 
 ################################################################################
@@ -438,6 +442,8 @@ def fix_ratio(IMG, height, width, method="area"):
         IMG = np.concatenate((IMG, np.ones([IMG.shape[1]-IMG.shape[0],
                             IMG.shape[1]])*MIN), axis=0)
 
+    if IMG is None:
+        raise ValueError("IMG is none, breast segmentation failed.")
     if method=="area":
         IMG = cv2.resize(IMG, (height, width), interpolation=cv2.INTER_AREA)
     if method=="linear":
@@ -455,7 +461,7 @@ def fix_ratio(IMG, height, width, method="area"):
 
 ################################################################################
 ################################################################################
-def fix_ratio_to_csv(IMG, obj):
+def fix_ratio_to_csv(IMG, obj, save_path):
     Image_Dimension = IMG.shape
     if IMG.shape[0] > IMG.shape[1]:
         Image_needed_side_extention="V"
@@ -467,12 +473,11 @@ def fix_ratio_to_csv(IMG, obj):
     Data = pd.DataFrame({"Image_needed_side_extention":Image_needed_side_extention,
                 "Needed_addition":Needed_addition, "Image_Dimension_X": Image_Dimension[0],
                 "Image_Dimension_Y": Image_Dimension[1]}, index=[0])
+    
+    if not os.path.isdir(save_path):
+        os.makedirs(save_path)
 
-    Path, File = os.path.split(obj.Case)
-    if File[-4:] == ".dcm": File = File[:-4]
-    saving_path = os.path.join(obj.output_path, File, "air_breast_mask")
-    if not(os.path.isdir(saving_path)): os.makedirs(saving_path)
-    Data.to_csv(os.path.join(saving_path, "fixing_ratio.csv"))
+    Data.to_csv(os.path.join(save_path, "fixing_ratio.csv"))
 
 
 

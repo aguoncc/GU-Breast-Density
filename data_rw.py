@@ -12,19 +12,24 @@ from keras.preprocessing.image import ImageDataGenerator
 
 def get_image_info(obj):
     # first image info
-    if hasattr(obj, "image_folder"):
+    if hasattr(obj, "image_folder") and obj.image_folder:
         Image_Path = os.path.join(obj.train_path, obj.image_folder)
     else:
         Image_Path = obj.train_path
 
-    Image_Path = os.path.join(Image_Path, "*"+obj.image_format)
+    Image_Path = os.path.normpath(Image_Path)
+    if not os.path.exists(Image_Path):
+        raise FileNotFoundError(f"Image folder doesn't exist: {Image_Path}")
+    
+    Image_Pattern = os.path.join(Image_Path, "*" + obj.image_format)
+    Images_files = sorted(glob(Image_Pattern))
+    if not Images_files:
+        raise FileNotFoundError(f"No images found at path: {Image_Pattern}")
 
-    Images_files = sorted(glob(Image_Path))
-
-    if len(Images_files)>=1:
-        Image_sample = cv2.imread(Images_files[0], -1)
-    else:
-        Image_sample = cv2.imread(Images_files, -1)
+    # load first image to get dims
+    Image_sample = cv2.imread(Images_files[0], -1)
+    if Image_sample is None:
+        raise FileNotFoundError(f"failed to read image: {Images_files[0]}")
 
     obj.target_size = (Image_sample.shape[0], Image_sample.shape[1])
     if len(Image_sample.shape)>2:
@@ -38,13 +43,18 @@ def get_image_info(obj):
     obj.num_training_image = len(Images_files)
 
     # then mask info
-    if hasattr(obj, "mask_folder"):
+    if hasattr(obj, "mask_folder") and obj.mask_folder:
         Mask_Path = os.path.join(obj.train_path, obj.mask_folder)
-        Mask_Path = os.path.join(Mask_Path, "*"+obj.image_format)
-
-        Mask_Files = sorted(glob(Mask_Path))
-        Mask_sample = cv2.imread(Mask_Files[0])
-
+        Mask_Path = os.path.normpath(Mask_Path)
+        if not os.path.exists(Mask_Path):
+            raise FileNotFoundError(f"Mask folder doesn't exist: {Mask_Path}")
+        
+        Mask_Pattern = os.path.join(Mask_Path, "*"+obj.image_format)
+        Mask_Files = sorted(glob(Mask_Pattern))
+        if not Mask_Files:
+            raise FileNotFoundError(f"No mask images found at path: {Mask_Pattern}")
+        
+        Mask_sample = cv2.imread(Mask_Files[0], -1)
         if len(Image_sample.shape)>2:
             obj.mask_color_mode = "rgb"
         else:
