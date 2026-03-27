@@ -3,11 +3,10 @@ import argparse, os
 
 def set_argparse(argv):
     ap = argparse.ArgumentParser()
-    # path to preprocessed png images are (air_net_data\image)
     ap.add_argument("-i", "--input_dataset",
-                    default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\output\model1\air_net_data",
+                    default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\output\vindr\air_net_data",
                     help="Path to input dataset")
-    # saving results
+    
     ap.add_argument("-o", "--output_path",
                     default=r"C:\Users\Data Science\Downloads\Attempt2\Deep-LIBRA2\output",
                     help="Path for saving results file")

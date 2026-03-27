@@ -355,7 +355,7 @@ def object_oriented_preprocessing(obj, metal_threshold=30000,
     #     else:
     #         obj.ds.ImageLaterality = "L"
 
-    # in this case, image laterality is listed in the name:
+    # using laterality without image.shape
     if hasattr(obj.ds, 'ImageLaterality'):
         laterality = obj.ds.ImageLaterality
     else:

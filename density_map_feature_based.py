@@ -30,7 +30,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("-o", "--output_path", required=False, default='./',
                 help="path for saving results file")
 
-ap.add_argument("-i", "--input", required=False, default='./file.dicom',
+ap.add_argument("-i", "--input", required=False, default='./file.dcm',
                 help="path for input files")
 
 ap.add_argument("-if", "--image_format", required=False, default='.png',
@@ -134,8 +134,8 @@ class Segmentor(object): # The main class
         air_mask = cv2.imread(air_mask_path, -1)
 
 
-        org_image = Normalize_Image(org_image, 2**13-1, # changed 2**13-1
-                        bits_conversion="uint16",# changed uint16
+        org_image = Normalize_Image(org_image, 2**13-1,
+                        bits_conversion="uint16",
                         flag_min_edition=True,
                         flag_max_edition=True,
                         Min=org_image.min(),
@@ -237,11 +237,11 @@ class Segmentor(object): # The main class
             self.normalized_features_svm = (self.FEATUREs[feature_list]-max_min["Min"])/(max_min["Max"]-max_min["Min"])
             segment_Classes = loaded_model.predict(self.normalized_features_svm)
 
-        # DEBUG: check SVM predictions
-        print("Segment class counts:", Counter(segment_Classes))
-        print("Normalized features min/max:", self.normalized_features_svm.min().min(), self.normalized_features_svm.max().max())
-        print("Some feature values for first 5 segments:\n", self.normalized_features_svm.head())
-        self.FEATUREs["Segment_Class"] = segment_Classes
+        # # editing: checking SVM predictions
+        # print("Segment class counts:", Counter(segment_Classes))
+        # print("Normalized features min/max:", self.normalized_features_svm.min().min(), self.normalized_features_svm.max().max())
+        # print("Some feature values for first 5 segments:\n", self.normalized_features_svm.head())
+        # self.FEATUREs["Segment_Class"] = segment_Classes
 
         ## This is where I might need to modify the density if it is really low
         # np.argwhere(segment_Classes==1)
